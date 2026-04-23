@@ -1,10 +1,8 @@
-# main.py
-# Terminal entry point — runs the full pipeline from the command line
-# The API (api.py) and terminal (main.py) both work independently
-
-from igna_brain import parse_query, filter_products, recommend
-from cua_scraper import run_scraper
-from reporter import print_table, save_csv
+from core.product_filter import filter_products
+from core.product_recommender import recommend
+from core.query_parser import parse_query
+from core.report_writer import print_table, save_csv
+from integrations.scraper_runner import run_scraper
 
 
 def ask_user_criteria() -> str:
@@ -50,7 +48,7 @@ def ask_user_criteria() -> str:
     query_parts = [product, budget, ram, storage, brand, condition_str]
     query = " ".join(part for part in query_parts if part).strip()
 
-    print(f"\n  ✔ Query built: \"{query}\"")
+    print(f'\n  ✔ Query built: "{query}"')
     print("=" * 55 + "\n")
 
     return query
@@ -84,8 +82,6 @@ def run_agent(user_query: str):
     else:
         print("❌ No products found at all. Check your internet or try again.")
 
-
-# ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     query = ask_user_criteria()
