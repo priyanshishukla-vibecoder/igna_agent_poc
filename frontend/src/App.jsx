@@ -15,7 +15,6 @@ function formatPrice(price) {
 
 export default function App() {
   const [query, setQuery] = useState("");
-  const [maxResultsPerSite, setMaxResultsPerSite] = useState(5);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -34,7 +33,7 @@ export default function App() {
         },
         body: JSON.stringify({
           query,
-          max_results_per_site: Number(maxResultsPerSite),
+          max_results_per_site: 8,
         }),
       });
 
@@ -78,19 +77,8 @@ export default function App() {
               />
             </label>
 
-            <label className="field field-compact">
-              <span>Max results per site</span>
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={maxResultsPerSite}
-                onChange={(event) => setMaxResultsPerSite(event.target.value)}
-              />
-            </label>
-
             <button className="submit-button" type="submit" disabled={loading}>
-              {loading ? "Researching..." : "Run Search"}
+              {loading ? "Researching..." : "Search"}
             </button>
           </form>
 
