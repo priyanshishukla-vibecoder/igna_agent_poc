@@ -1,0 +1,22 @@
+# requirements.txt
+# IGNA Competitive Product Research Agent
+# Install with: pip install -r requirements.txt
+
+# API framework
+fastapi>=0.115.0,<1.0.0
+uvicorn>=0.30.6,<1.0.0
+
+# Azure OpenAI
+openai>=1.51.0,<2.0.0
+
+# Environment variables
+python-dotenv>=1.0.1,<2.0.0
+
+# Browser automation (CUA layer)
+playwright>=1.47.0
+
+# Data and reporting
+rich>=13.9.2,<15.0.0
+
+# Validation (FastAPI dependency)
+pydantic>=2.9.2,<3.0.0
