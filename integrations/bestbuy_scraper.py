@@ -7,6 +7,9 @@ from integrations.scraper_support import (
     BESTBUY_CATEGORIES,
     build_products,
     get_product_keyword,
+    infer_condition_from_text,
+    is_truly_new_item,
+    log_raw_scraper_items,
     log_scraped_products,
 )
 
@@ -104,7 +107,23 @@ async def scrape_bestbuy(query: str, max_results: int = 5) -> list:
                             ? 'https://www.bestbuy.com' + linkEl.getAttribute('href')
                             : null;
 
-                        items.push({ title, price, rating, shipping, condition: 'New', url });
+                        const titleLower = title.toLowerCase();
+                        let condition = 'Not specified';
+                        if (
+                            titleLower.includes('renewed premium') ||
+                            titleLower.includes('renewed') ||
+                            titleLower.includes('refurbished') ||
+                            titleLower.includes('open box') ||
+                            titleLower.includes('used') ||
+                            titleLower.includes('pre-owned') ||
+                            titleLower.includes('pre owned')
+                        ) {
+                            condition = title;
+                        } else {
+                            condition = 'New';
+                        }
+
+                        items.push({ title, price, rating, shipping, condition, url });
                     });
 
                     const seen = new Set();
@@ -117,7 +136,20 @@ async def scrape_bestbuy(query: str, max_results: int = 5) -> list:
             )
 
             print(f"   [Best Buy] Found {len(raw_items)} items")
-            products = build_products(raw_items, "Best Buy", max_results)
+            log_raw_scraper_items("Best Buy", raw_items)
+            filtered_items = [
+                {
+                    **item,
+                    "condition": infer_condition_from_text(
+                        item.get("title"),
+                        item.get("condition"),
+                    ),
+                }
+                for item in raw_items
+                if is_truly_new_item(item.get("title"), item.get("condition"))
+            ]
+            print(f"   [Best Buy] Truly new items after condition filter: {len(filtered_items)}")
+            products = build_products(filtered_items, "Best Buy", max_results)
             log_scraped_products("Best Buy", products)
 
         except Exception as exc:

@@ -10,25 +10,20 @@ async def scrape_all(query: str, max_per_site: int = 5) -> list:
     """Runs all scrapers sequentially and combines deduplicated results."""
     all_products = []
 
-    print("   → Scraping eBay (lowest price)...")
-    ebay_low = await scrape_ebay(query, max_per_site, sort="15", label="eBay")
-    all_products.extend(ebay_low)
-    print(f"   → eBay (low price): {len(ebay_low)} products\n")
-
-    print("   → Scraping eBay (top rated)...")
+    print("   -> Scraping eBay (top rated)...")
     ebay_top = await scrape_ebay(query, max_per_site, sort="25", label="eBay (top rated)")
     all_products.extend(ebay_top)
-    print(f"   → eBay (top rated): {len(ebay_top)} products\n")
+    print(f"   -> eBay (top rated): {len(ebay_top)} products\n")
 
-    print("   → Scraping Best Buy...")
+    print("   -> Scraping Best Buy...")
     bestbuy = await scrape_bestbuy(query, max_per_site)
     all_products.extend(bestbuy)
-    print(f"   → Best Buy: {len(bestbuy)} products\n")
+    print(f"   -> Best Buy: {len(bestbuy)} products\n")
 
-    print("   → Scraping Amazon...")
+    print("   -> Scraping Amazon...")
     amazon_items = await scrape_amazon(query, max_per_site)
     all_products.extend(amazon_items)
-    print(f"   → Amazon: {len(amazon_items)} products\n")
+    print(f"   -> Amazon: {len(amazon_items)} products\n")
 
     seen = set()
     unique = []
@@ -38,7 +33,7 @@ async def scrape_all(query: str, max_per_site: int = 5) -> list:
             seen.add(key)
             unique.append(product)
 
-    print(f"   → Total (deduplicated): {len(unique)} products")
+    print(f"   -> Total (deduplicated): {len(unique)} products")
     return unique
 
 

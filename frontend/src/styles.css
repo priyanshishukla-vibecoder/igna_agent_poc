@@ -267,6 +267,19 @@ td {
   color: #1c425c;
 }
 
+.product-link {
+  color: #1c425c;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.18s ease, text-decoration-color 0.18s ease;
+}
+
+.product-link:hover {
+  color: #11567f;
+  text-decoration: underline;
+  text-decoration-color: rgba(17, 86, 127, 0.45);
+}
+
 .loading-card,
 .empty-state {
   min-height: 260px;

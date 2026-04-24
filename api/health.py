@@ -6,8 +6,8 @@ from openai import AzureOpenAI
 from models import HealthResponse
 
 
-router = APIRouter()
-
+router = APIRouter() #APIRouter lets you define a group of related API routes(instead of putting everything in one file)
+#This router is later plugged into your main FastAPI app in app.py
 
 @router.get(
     "/health",
@@ -23,10 +23,10 @@ async def health():
         client = AzureOpenAI(
             api_key=os.getenv("AZURE_OPENAI_API_KEY"),
             azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
         )
         client.chat.completions.create(
-            model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5-mini"),
+            model=os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini"),
             messages=[{"role": "user", "content": "ping"}],
             max_tokens=1,
         )

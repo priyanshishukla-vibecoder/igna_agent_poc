@@ -7,8 +7,26 @@ from integrations.scraper_support import (
     EBAY_CATEGORIES,
     build_products,
     get_product_keyword,
+    infer_condition_from_text,
+    is_truly_new_item,
+    log_raw_scraper_items,
     log_scraped_products,
 )
+
+
+def get_ebay_condition_param(query: str) -> str:
+    """
+    Maps user condition intent to eBay item condition codes.
+    Defaults to New-only results for faster, cleaner scraping.
+    """
+    query_lower = query.lower()
+    if "open box" in query_lower:
+        return "1500"
+    if "refurbished" in query_lower or "renewed" in query_lower:
+        return "2000"
+    if "used" in query_lower or "pre-owned" in query_lower or "pre owned" in query_lower:
+        return "3000"
+    return "1000"
 
 
 async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label: str = "eBay") -> list:
@@ -22,6 +40,7 @@ async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label:
             keyword = get_product_keyword(query)
             category_id = EBAY_CATEGORIES.get(keyword, "")
             cat_param = f"&_sacat={category_id}" if category_id else ""
+            condition_code = get_ebay_condition_param(query)
 
             if category_id:
                 print(f"   [{label}] Category: {category_id} ({keyword})")
@@ -29,7 +48,7 @@ async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label:
             search_url = (
                 f"https://www.ebay.com/sch/i.html"
                 f"?_nkw={query.replace(' ', '+')}"
-                f"&_sop={sort}&LH_BIN=1{cat_param}"
+                f"&_sop={sort}&LH_BIN=1&LH_ItemCondition={condition_code}{cat_param}"
             )
 
             print(f"   [{label}] Navigating...")
@@ -56,6 +75,7 @@ async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label:
 
                         if (!title || title.length < 5) return;
                         if (title.toLowerCase().includes('shop on ebay')) return;
+                        if (title.startsWith('$')) return;
 
                         const priceMatch = text.match(/\$([\d,]+(?:\.[\d]+)?)/);
                         const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
@@ -84,7 +104,20 @@ async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label:
             )
 
             print(f"   [{label}] Found {len(raw_items)} items")
-            products = build_products(raw_items, label, max_results)
+            log_raw_scraper_items(label, raw_items)
+            filtered_items = [
+                {
+                    **item,
+                    "condition": infer_condition_from_text(
+                        item.get("title"),
+                        item.get("condition"),
+                    ),
+                }
+                for item in raw_items
+                if is_truly_new_item(item.get("title"), item.get("condition"))
+            ]
+            print(f"   [{label}] Truly new items after condition filter: {len(filtered_items)}")
+            products = build_products(filtered_items, label, max_results)
             log_scraped_products(label, products)
 
         except Exception as exc:

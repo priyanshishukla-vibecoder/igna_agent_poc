@@ -161,7 +161,20 @@ export default function App() {
                     <tbody>
                       {result.products.map((product) => (
                         <tr key={`${product.site}-${product.name}`}>
-                          <td>{product.name}</td>
+                          <td>
+                            {product.url ? (
+                              <a
+                                className="product-link"
+                                href={product.url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {product.name}
+                              </a>
+                            ) : (
+                              product.name
+                            )}
+                          </td>
                           <td>{product.site}</td>
                           <td>{formatPrice(product.price)}</td>
                           <td>{product.condition || "N/A"}</td>

@@ -26,6 +26,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(search_router)
+app.include_router(search_router) #add the routes from each module to the main app
 app.include_router(report_router)
 app.include_router(health_router)
