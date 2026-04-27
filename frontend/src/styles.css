@@ -111,6 +111,13 @@ textarea {
   gap: 1rem;
 }
 
+.action-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .field {
   display: grid;
   gap: 0.55rem;
@@ -166,6 +173,25 @@ textarea {
   cursor: wait;
 }
 
+.stop-button {
+  width: fit-content;
+  border: 1px solid rgba(18, 48, 71, 0.12);
+  border-radius: 999px;
+  padding: 0.95rem 1.5rem;
+  font-weight: 700;
+  color: #8a2b1c;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 28px rgba(18, 48, 71, 0.08);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.stop-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(138, 43, 28, 0.24);
+  box-shadow: 0 16px 32px rgba(18, 48, 71, 0.12);
+}
+
 .error-banner {
   margin-top: 1rem;
   padding: 0.9rem 1rem;
@@ -173,6 +199,15 @@ textarea {
   color: #8a2b1c;
   background: #fff1ed;
   border: 1px solid #ffd1c6;
+}
+
+.status-banner {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  color: #1d4a66;
+  background: #edf7ff;
+  border: 1px solid #c9e7fb;
 }
 
 .results-panel {
@@ -338,6 +373,10 @@ td {
   .submit-button {
     width: 100%;
     justify-self: stretch;
+  }
+
+  .stop-button {
+    width: 100%;
   }
 
   .field-compact {

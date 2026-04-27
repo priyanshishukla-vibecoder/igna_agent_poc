@@ -4,7 +4,8 @@ from urllib.parse import quote_plus
 
 from playwright.async_api import async_playwright
 
-from integrations.browser import get_stealth_page, human_delay
+from core.cancellation import CancelContext, FlowCancelled
+from integrations.browser import get_stealth_page, human_delay, register_cancelable_browser
 from integrations.scraper_support import (
     build_products,
     infer_condition_from_text,
@@ -45,7 +46,12 @@ def parse_amazon_price_text(text: str | None) -> float | None:
     return value if value > 0 else None
 
 
-async def enrich_amazon_missing_prices(page, items: list, limit: int) -> list:
+async def enrich_amazon_missing_prices(
+    page,
+    items: list,
+    limit: int,
+    cancel_context: CancelContext | None = None,
+) -> list:
     """
     Opens Amazon product pages for items missing prices and extracts the detail-page price.
     """
@@ -56,9 +62,12 @@ async def enrich_amazon_missing_prices(page, items: list, limit: int) -> list:
     print(f"   [Amazon] Enriching prices from product pages for {len(items_to_enrich)} items...")
 
     for item in items_to_enrich:
+        if cancel_context is not None:
+            cancel_context.raise_if_cancelled()
+
         try:
             await page.goto(item["url"], timeout=30000, wait_until="domcontentloaded")
-            await human_delay(1200, 1800)
+            await human_delay(1200, 1800, cancel_context=cancel_context)
 
             detail = await page.evaluate(
                 r"""() => {
@@ -101,14 +110,22 @@ async def enrich_amazon_missing_prices(page, items: list, limit: int) -> list:
     return items
 
 
-async def scrape_amazon(query: str, max_results: int = 5) -> list:
+async def scrape_amazon(
+    query: str,
+    max_results: int = 5,
+    cancel_context: CancelContext | None = None,
+) -> list:
     """Scrapes Amazon with stealth handling and category extraction."""
     products = []
     os.makedirs("data", exist_ok=True)
 
     async with async_playwright() as playwright:
         browser, page = await get_stealth_page(playwright)
+        close_browser_callback = register_cancelable_browser(browser, cancel_context)
         try:
+            if cancel_context is not None:
+                cancel_context.raise_if_cancelled()
+
             search_url = f"https://www.amazon.com/s?k={quote_plus(query)}&language=en_US"
 
             print("   [Amazon] Navigating...")
@@ -138,13 +155,16 @@ async def scrape_amazon(query: str, max_results: int = 5) -> list:
             )
 
             for attempt in range(2):
+                if cancel_context is not None:
+                    cancel_context.raise_if_cancelled()
+
                 await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
-                await human_delay(2000, 3000)
+                await human_delay(2000, 3000, cancel_context=cancel_context)
 
                 content = await page.content()
                 if "Type the characters" in content or "Sorry! Something went wrong" in content:
                     print(f"   [Amazon] Bot check detected, retrying (attempt {attempt + 1}/2)...")
-                    await human_delay(3000, 5000)
+                    await human_delay(3000, 5000, cancel_context=cancel_context)
                     continue
                 break
 
@@ -153,7 +173,7 @@ async def scrape_amazon(query: str, max_results: int = 5) -> list:
                 print("   [Amazon] Warning: redirected to amazon.in; USD prices may not be available")
 
             await page.evaluate("window.scrollBy(0, 800)")
-            await human_delay(1500, 2500)
+            await human_delay(1500, 2500, cancel_context=cancel_context)
             await page.screenshot(path="data/debug_amazon.png")
 
             raw_items = await page.evaluate(
@@ -379,11 +399,15 @@ async def scrape_amazon(query: str, max_results: int = 5) -> list:
                 page,
                 filtered_items,
                 limit=max(max_results * 2, 8),
+                cancel_context=cancel_context,
             )
             log_raw_scraper_items("Amazon enriched", filtered_items[:max_results])
             products = build_products(filtered_items, "Amazon", max_results)
             log_scraped_products("Amazon", products)
 
+        except FlowCancelled:
+            print("   [Amazon] Cancelled")
+            raise
         except Exception as exc:
             print(f"   [Amazon] Error: {exc}")
             try:
@@ -391,6 +415,8 @@ async def scrape_amazon(query: str, max_results: int = 5) -> list:
             except Exception:
                 pass
         finally:
+            if cancel_context is not None and close_browser_callback is not None:
+                cancel_context.unregister_callback(close_browser_callback)
             await browser.close()
 
     return products

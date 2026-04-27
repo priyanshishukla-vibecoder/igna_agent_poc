@@ -60,7 +60,7 @@ def print_table(products: list, recommendation: dict):
             f"Site: {recommendation.get('site', '—')}"
         )
         if recommendation.get("url"):
-            console.print(f"   Link: {recommendation['url'][:80]}")
+            console.print(f"   Link: {recommendation['url']}")
 
 
 def save_csv(products: list, filename: str = None) -> str:

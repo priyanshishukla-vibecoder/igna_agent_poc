@@ -2,7 +2,8 @@ import os
 
 from playwright.async_api import async_playwright
 
-from integrations.browser import get_stealth_page, human_delay
+from core.cancellation import CancelContext, FlowCancelled
+from integrations.browser import get_stealth_page, human_delay, register_cancelable_browser
 from integrations.scraper_support import (
     EBAY_CATEGORIES,
     build_products,
@@ -29,14 +30,73 @@ def get_ebay_condition_param(query: str) -> str:
     return "1000"
 
 
-async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label: str = "eBay") -> list:
+async def navigate_ebay_search(
+    page,
+    search_url: str,
+    label: str,
+    cancel_context: CancelContext | None = None,
+) -> None:
+    """
+    Warm up the eBay session first, then load search with one retry if the edge
+    returns an access-denied page.
+    """
+    await page.set_extra_http_headers(
+        {
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://www.google.com/",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        }
+    )
+
+    for attempt in range(2):
+        if cancel_context is not None:
+            cancel_context.raise_if_cancelled()
+
+        if attempt == 0:
+            print(f"   [{label}] Opening eBay homepage...")
+            await page.goto("https://www.ebay.com/", timeout=30000, wait_until="domcontentloaded")
+            await human_delay(1800, 2600, cancel_context=cancel_context)
+
+        print(f"   [{label}] Navigating to search (attempt {attempt + 1}/2)...")
+        await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+        await human_delay(2200, 3200, cancel_context=cancel_context)
+
+        page_text = (await page.text_content("body") or "").lower()
+        page_title = (await page.title() or "").lower()
+        blocked = "access denied" in page_title or "access denied" in page_text
+
+        if not blocked:
+            return
+
+        print(f"   [{label}] Access denied page detected, retrying with a fresh eBay session...")
+        await page.context.clear_cookies()
+        await human_delay(3000, 4500, cancel_context=cancel_context)
+        await page.goto("https://www.ebay.com/", timeout=30000, wait_until="domcontentloaded")
+        await human_delay(2200, 3200, cancel_context=cancel_context)
+
+    raise RuntimeError("eBay returned Access Denied for the search page")
+
+
+async def scrape_ebay(
+    query: str,
+    max_results: int = 5,
+    sort: str = "15",
+    label: str = "eBay",
+    cancel_context: CancelContext | None = None,
+) -> list:
     """Scrapes eBay search results scoped to a product category."""
     products = []
     os.makedirs("data", exist_ok=True)
 
     async with async_playwright() as playwright:
         browser, page = await get_stealth_page(playwright)
+        close_browser_callback = register_cancelable_browser(browser, cancel_context)
         try:
+            if cancel_context is not None:
+                cancel_context.raise_if_cancelled()
+
             keyword = get_product_keyword(query)
             category_id = EBAY_CATEGORIES.get(keyword, "")
             cat_param = f"&_sacat={category_id}" if category_id else ""
@@ -52,10 +112,10 @@ async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label:
             )
 
             print(f"   [{label}] Navigating...")
-            await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+            await navigate_ebay_search(page, search_url, label, cancel_context=cancel_context)
             await page.wait_for_selector(".srp-river-results li", timeout=15000)
             await page.evaluate("window.scrollBy(0, 600)")
-            await human_delay(2000, 3000)
+            await human_delay(2000, 3000, cancel_context=cancel_context)
 
             screenshot_name = label.lower().replace(" ", "_").replace("(", "").replace(")", "")
             await page.screenshot(path=f"data/debug_{screenshot_name}.png")
@@ -120,6 +180,9 @@ async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label:
             products = build_products(filtered_items, label, max_results)
             log_scraped_products(label, products)
 
+        except FlowCancelled:
+            print(f"   [{label}] Cancelled")
+            raise
         except Exception as exc:
             print(f"   [{label}] Error: {exc}")
             try:
@@ -127,6 +190,8 @@ async def scrape_ebay(query: str, max_results: int = 5, sort: str = "15", label:
             except Exception:
                 pass
         finally:
+            if cancel_context is not None and close_browser_callback is not None:
+                cancel_context.unregister_callback(close_browser_callback)
             await browser.close()
 
     return products

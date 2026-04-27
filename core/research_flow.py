@@ -1,3 +1,4 @@
+from core.cancellation import CancelContext
 from core.product_filter import (
     dedupe_products,
     filter_products,
@@ -9,19 +10,37 @@ from core.summary_generator import generate_summary
 from integrations.scraper_runner import run_scraper
 
 
-def run_research(query: str, max_results_per_site: int = 5) -> dict:
+def run_research(
+    query: str,
+    max_results_per_site: int = 5,
+    cancel_context: CancelContext | None = None,
+) -> dict:
     """Runs the end-to-end IGNA research pipeline."""
     minimum_display_results = 5
+
+    if cancel_context is not None:
+        cancel_context.raise_if_cancelled()
 
     print("[IGNA API] Step 1 - parsing query with Azure OpenAI...")
     criteria = parse_query(query)
     print(f"[IGNA API] Criteria: {criteria}")
 
+    if cancel_context is not None:
+        cancel_context.raise_if_cancelled()
+
     print("[IGNA API] Step 2 - CUA scraper launching...")
     search_term = criteria.get("search_term") or query
     print(f"[IGNA API] Search term: {search_term}")
-    raw_products = run_scraper(search_term, max_results_per_site)
+    raw_products = run_scraper(
+        search_term,
+        max_results_per_site,
+        criteria=criteria,
+        cancel_context=cancel_context,
+    )
     print(f"[IGNA API] Step 2 complete - {len(raw_products)} raw products")
+
+    if cancel_context is not None:
+        cancel_context.raise_if_cancelled()
 
     print("[IGNA API] Step 3 - filtering and ranking...")
     filtered = filter_products(raw_products, criteria)
@@ -53,6 +72,9 @@ def run_research(query: str, max_results_per_site: int = 5) -> dict:
     top_pick = recommend(filtered, criteria)
     display_recommendation = top_pick if top_pick else recommend(display_products, criteria)
     print(f"[IGNA API] Step 3 complete - {len(display_products)} products")
+
+    if cancel_context is not None:
+        cancel_context.raise_if_cancelled()
 
     print("[IGNA API] Step 4 - generating AI summary...")
     summary = generate_summary(display_products, criteria, display_recommendation)
