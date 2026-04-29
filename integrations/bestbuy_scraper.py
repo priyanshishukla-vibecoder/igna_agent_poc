@@ -118,9 +118,72 @@ async def extract_bestbuy_items(page) -> list:
                 const normalizedText = text.replace(/\s+/g, ' ').trim().toLowerCase();
                 const availabilityRoot =
                     el.querySelector('.sku-block-footer, .add-to-cart, .add-to-cart-compare') || el;
+                const describeControl = node => {
+                    const controlText = (
+                        node.innerText ||
+                        node.textContent ||
+                        node.getAttribute('aria-label') ||
+                        node.getAttribute('title') ||
+                        ''
+                    )
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                    return {
+                        tag: (node.tagName || '').toLowerCase(),
+                        text: controlText,
+                        aria_label: node.getAttribute('aria-label') || '',
+                        title: node.getAttribute('title') || '',
+                        role: node.getAttribute('role') || '',
+                        testid: node.getAttribute('data-testid') || '',
+                        class_name: node.className || '',
+                        disabled: Boolean(node.disabled),
+                        aria_disabled: node.getAttribute('aria-disabled') || '',
+                    };
+                };
+                const cardControls = Array.from(
+                    el.querySelectorAll('button, [role="button"], a')
+                )
+                    .map(describeControl)
+                    .filter(control => control.text || control.aria_label || control.testid);
                 const hasUnavailableTestId = Boolean(
                     availabilityRoot.querySelector('[data-testid*="plp-unavailable"]')
                 );
+                const ctaCandidates = Array.from(
+                    availabilityRoot.querySelectorAll('button, [role="button"], a')
+                )
+                    .map(node => {
+                        const text = (
+                            node.innerText ||
+                            node.textContent ||
+                            node.getAttribute('aria-label') ||
+                            node.getAttribute('title') ||
+                            ''
+                        )
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                            .toLowerCase();
+                        return { node, text };
+                    })
+                    .filter(candidate => {
+                        const text = candidate.text;
+                        return (
+                            text.includes('add to cart') ||
+                            text.includes('see details') ||
+                            text.includes('notify me') ||
+                            text.includes('unavailable')
+                        );
+                    });
+                const ctaCandidatesDetailed = ctaCandidates.map(candidate => describeControl(candidate.node));
+                const ctaPriority = ['add to cart', 'see details', 'notify me', 'unavailable'];
+                let normalizedPrimaryCtaText = '';
+                for (const priority of ctaPriority) {
+                    const match = ctaCandidates.find(candidate => candidate.text.includes(priority));
+                    if (match) {
+                        normalizedPrimaryCtaText = match.text;
+                        break;
+                    }
+                }
                 const unavailableButton = el.querySelector(
                     '.sku-block-footer button[data-testid*="plp-unavailable"], ' +
                     '.sku-block-footer button[disabled], ' +
@@ -145,17 +208,15 @@ async def extract_bestbuy_items(page) -> list:
                     .replace(/\s+/g, ' ')
                     .trim()
                     .toLowerCase();
-                const looksUnavailable =
-                    hasUnavailableTestId ||
-                    normalizedUnavailableText.includes('unavailable') ||
-                    availabilityText.includes('unavailable') ||
-                    availabilityText.includes('notify me') ||
-                    normalizedText.includes(' unavailable ') ||
-                    normalizedText.endsWith(' unavailable') ||
-                    normalizedText.includes(' notify me');
-
-                if (looksUnavailable) {
-                    return;
+                let ctaText = normalizedPrimaryCtaText;
+                if (!ctaText && hasUnavailableTestId) {
+                    ctaText = 'unavailable';
+                } else if (!ctaText && normalizedUnavailableText.includes('unavailable')) {
+                    ctaText = 'unavailable';
+                } else if (!ctaText && availabilityText.includes('notify me')) {
+                    ctaText = 'notify me';
+                } else if (!ctaText && availabilityText.includes('unavailable')) {
+                    ctaText = 'unavailable';
                 }
 
                 const titleEl = el.querySelector(
@@ -274,7 +335,23 @@ async def extract_bestbuy_items(page) -> list:
                     condition = 'New';
                 }
 
-                items.push({ title, price, rating, shipping, condition, url });
+                items.push({
+                    title,
+                    price,
+                    rating,
+                    shipping,
+                    condition,
+                    url,
+                    sku_id: skuId,
+                    cta_text: ctaText,
+                    primary_cta_text: normalizedPrimaryCtaText,
+                    availability_text: availabilityText,
+                    unavailable_text: normalizedUnavailableText,
+                    has_unavailable_testid: hasUnavailableTestId,
+                    cta_candidates: ctaCandidatesDetailed,
+                    card_controls: cardControls,
+                    card_text_preview: text.replace(/\s+/g, ' ').trim().slice(0, 600),
+                });
             });
 
             const seen = new Set();
@@ -284,6 +361,139 @@ async def extract_bestbuy_items(page) -> list:
                 return true;
             });
         }"""
+    )
+
+
+async def extract_bestbuy_page_context(page) -> dict:
+    """Captures Best Buy session/location context visible on the page for debugging."""
+    return await page.evaluate(
+        r"""() => {
+            const getText = selectors => {
+                for (const selector of selectors) {
+                    const node = document.querySelector(selector);
+                    const text = (
+                        node?.innerText ||
+                        node?.textContent ||
+                        node?.getAttribute?.('aria-label') ||
+                        node?.getAttribute?.('title') ||
+                        ''
+                    )
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    if (text) return text;
+                }
+                return '';
+            };
+
+            const findTextsContaining = needles => {
+                const elements = Array.from(document.querySelectorAll('button, a, div, span, p'));
+                const matches = [];
+
+                for (const el of elements) {
+                    const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+                    if (!text) continue;
+
+                    const normalized = text.toLowerCase();
+                    if (needles.some(needle => normalized.includes(needle))) {
+                        matches.push(text);
+                    }
+
+                    if (matches.length >= 12) break;
+                }
+
+                return matches;
+            };
+
+            return {
+                page_url: window.location.href,
+                page_title: document.title,
+                choose_country_visible: document.body.innerText.includes('Choose a country'),
+                location_button_text: getText([
+                    '[data-testid="store-button"]',
+                    '[data-testid="fulfillment-location-button"]',
+                    'button[aria-label*="store"]',
+                    'button[aria-label*="Store"]',
+                    'button[aria-label*="pickup"]',
+                    'button[aria-label*="Pickup"]',
+                ]),
+                store_text: getText([
+                    '[data-testid="storeName"]',
+                    '[data-testid="selected-store"]',
+                    '[class*="storeName"]',
+                    '[class*="selected-store"]',
+                ]),
+                zip_text: getText([
+                    '[data-testid="postalCode"]',
+                    '[class*="postalCode"]',
+                    '[class*="zipcode"]',
+                    '[class*="zipCode"]',
+                ]),
+                shipping_texts: findTextsContaining(['shipping', 'pickup', 'delivery', 'store']),
+                country_texts: findTextsContaining(['united states', 'canada', 'choose a country']),
+            };
+        }"""
+    )
+
+
+def filter_bestbuy_raw_items(raw_items: list[dict]) -> list[dict]:
+    """Keeps only Best Buy items whose CTA is allowed for purchase/details."""
+    allowed_ctas = {"add to cart", "see details"}
+    blocked_ctas = {"notify me", "unavailable"}
+    filtered_items = []
+
+    for item in raw_items:
+        cta_text = str(item.get("cta_text") or item.get("primary_cta_text") or "")
+        normalized_cta_text = cta_text.strip().lower()
+
+        if any(blocked in normalized_cta_text for blocked in blocked_ctas):
+            continue
+
+        if any(allowed in normalized_cta_text for allowed in allowed_ctas):
+            filtered_items.append(item)
+
+    return filtered_items
+
+
+def log_bestbuy_filter_decisions(raw_items: list[dict], label: str) -> None:
+    """Prints CTA-focused debug info for Best Buy raw items before/after filtering."""
+    print(f"   [Best Buy] {label}: {len(raw_items)} items")
+    for index, item in enumerate(raw_items[:10], start=1):
+        print(
+            "   [Best Buy] "
+            f"{label} item {index}: "
+            f"title={item.get('title')!r}, "
+            f"cta_text={item.get('cta_text')!r}, "
+            f"primary_cta_text={item.get('primary_cta_text')!r}, "
+            f"availability_text={item.get('availability_text')!r}, "
+            f"unavailable_text={item.get('unavailable_text')!r}, "
+            f"has_unavailable_testid={item.get('has_unavailable_testid')!r}, "
+            f"cta_candidates={item.get('cta_candidates')!r}"
+        )
+
+    remaining = len(raw_items) - 10
+    if remaining > 0:
+        print(f"   [Best Buy] {label}: ... {remaining} more items not shown")
+
+
+def log_bestbuy_page_context(context: dict, label: str) -> None:
+    """Prints Best Buy page/session context to help explain availability differences."""
+    print(
+        "   [Best Buy] "
+        f"{label}: "
+        f"url={context.get('page_url')!r}, "
+        f"title={context.get('page_title')!r}, "
+        f"choose_country_visible={context.get('choose_country_visible')!r}, "
+        f"location_button_text={context.get('location_button_text')!r}, "
+        f"store_text={context.get('store_text')!r}, "
+        f"zip_text={context.get('zip_text')!r}"
+    )
+    print(
+        "   [Best Buy] "
+        f"{label} shipping/store texts: {context.get('shipping_texts')!r}"
+    )
+    print(
+        "   [Best Buy] "
+        f"{label} country texts: {context.get('country_texts')!r}"
     )
 
 
@@ -341,11 +551,17 @@ async def scrape_bestbuy(
                 print(f"   [Best Buy] Category: {category_id} ({keyword})")
 
             await open_bestbuy_search(page, search_url, cancel_context=cancel_context)
+            page_context = await extract_bestbuy_page_context(page)
+            log_bestbuy_page_context(page_context, "Page context after navigation")
             await page.evaluate("window.scrollBy(0, 600)")
             await human_delay(2000, 2500, cancel_context=cancel_context)
 
             print("   [Best Buy] Capturing baseline search results...")
             raw_items = await extract_bestbuy_items(page)
+            log_raw_scraper_items("Best Buy baseline raw", raw_items)
+            log_bestbuy_filter_decisions(raw_items, "Baseline CTA debug")
+            raw_items = filter_bestbuy_raw_items(raw_items)
+            log_bestbuy_filter_decisions(raw_items, "Baseline allowed CTA")
 
             if raw_items:
                 await apply_bestbuy_filters(
@@ -355,9 +571,15 @@ async def scrape_bestbuy(
                     criteria,
                     cancel_context=cancel_context,
                 )
+                page_context = await extract_bestbuy_page_context(page)
+                log_bestbuy_page_context(page_context, "Page context after filters")
                 await page.evaluate("window.scrollBy(0, 600)")
                 await human_delay(2000, 2500, cancel_context=cancel_context)
                 filtered_raw_items = await extract_bestbuy_items(page)
+                log_raw_scraper_items("Best Buy filtered-page raw", filtered_raw_items)
+                log_bestbuy_filter_decisions(filtered_raw_items, "Filtered-page CTA debug")
+                filtered_raw_items = filter_bestbuy_raw_items(filtered_raw_items)
+                log_bestbuy_filter_decisions(filtered_raw_items, "Filtered-page allowed CTA")
 
                 if filtered_raw_items:
                     raw_items = filtered_raw_items
@@ -365,9 +587,15 @@ async def scrape_bestbuy(
                 else:
                     print("   [Best Buy] Filters produced 0 items, reverting to unfiltered search results")
                     await open_bestbuy_search(page, search_url, cancel_context=cancel_context)
+                    page_context = await extract_bestbuy_page_context(page)
+                    log_bestbuy_page_context(page_context, "Page context after revert")
                     await page.evaluate("window.scrollBy(0, 600)")
                     await human_delay(2000, 2500, cancel_context=cancel_context)
                     raw_items = await extract_bestbuy_items(page)
+                    log_raw_scraper_items("Best Buy reverted raw", raw_items)
+                    log_bestbuy_filter_decisions(raw_items, "Reverted CTA debug")
+                    raw_items = filter_bestbuy_raw_items(raw_items)
+                    log_bestbuy_filter_decisions(raw_items, "Reverted allowed CTA")
             else:
                 print("   [Best Buy] Baseline search returned 0 items, skipping filter application")
 
