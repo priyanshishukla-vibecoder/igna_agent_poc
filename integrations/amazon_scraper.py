@@ -383,7 +383,7 @@ async def scrape_amazon(
             print(f"   [Amazon] Relevant items after filtering: {len(filtered_items)}")
             if len(filtered_items) != len(raw_items):
                 log_raw_scraper_items("Amazon relevant", filtered_items)
-            filtered_items = [
+            normalized_items = [
                 {
                     **item,
                     "condition": infer_condition_from_text(
@@ -392,13 +392,25 @@ async def scrape_amazon(
                     ),
                 }
                 for item in filtered_items
+            ]
+            new_only_items = [
+                item
+                for item in normalized_items
                 if is_truly_new_item(item.get("title"), item.get("condition"))
             ]
-            print(f"   [Amazon] Truly new items after condition filter: {len(filtered_items)}")
+            print(f"   [Amazon] Truly new items after condition filter: {len(new_only_items)}")
+
+            fallback_items = new_only_items if len(new_only_items) >= max_results else normalized_items
+            if fallback_items is normalized_items and normalized_items:
+                print(
+                    "   [Amazon] Using broader relevant results for fallback because "
+                    "strict new-only matches were limited"
+                )
+
             filtered_items = await enrich_amazon_missing_prices(
                 page,
-                filtered_items,
-                limit=max(max_results * 2, 8),
+                fallback_items,
+                limit=min(max_results, 5),
                 cancel_context=cancel_context,
             )
             log_raw_scraper_items("Amazon enriched", filtered_items[:max_results])

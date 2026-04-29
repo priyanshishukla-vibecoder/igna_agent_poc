@@ -37,8 +37,8 @@ async def navigate_ebay_search(
     cancel_context: CancelContext | None = None,
 ) -> None:
     """
-    Warm up the eBay session first, then load search with one retry if the edge
-    returns an access-denied page.
+    Load the eBay search page directly, with one retry if the edge returns an
+    access-denied page.
     """
     await page.set_extra_http_headers(
         {
@@ -53,11 +53,6 @@ async def navigate_ebay_search(
     for attempt in range(2):
         if cancel_context is not None:
             cancel_context.raise_if_cancelled()
-
-        if attempt == 0:
-            print(f"   [{label}] Opening eBay homepage...")
-            await page.goto("https://www.ebay.com/", timeout=30000, wait_until="domcontentloaded")
-            await human_delay(1800, 2600, cancel_context=cancel_context)
 
         print(f"   [{label}] Navigating to search (attempt {attempt + 1}/2)...")
         await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
@@ -165,7 +160,7 @@ async def scrape_ebay(
 
             print(f"   [{label}] Found {len(raw_items)} items")
             log_raw_scraper_items(label, raw_items)
-            filtered_items = [
+            normalized_items = [
                 {
                     **item,
                     "condition": infer_condition_from_text(
@@ -174,10 +169,20 @@ async def scrape_ebay(
                     ),
                 }
                 for item in raw_items
+            ]
+            new_only_items = [
+                item
+                for item in normalized_items
                 if is_truly_new_item(item.get("title"), item.get("condition"))
             ]
-            print(f"   [{label}] Truly new items after condition filter: {len(filtered_items)}")
-            products = build_products(filtered_items, label, max_results)
+            print(f"   [{label}] Truly new items after condition filter: {len(new_only_items)}")
+            selected_items = new_only_items if len(new_only_items) >= max_results else normalized_items
+            if selected_items is normalized_items and normalized_items:
+                print(
+                    f"   [{label}] Using broader search results for fallback because "
+                    "strict new-only matches were limited"
+                )
+            products = build_products(selected_items, label, max_results)
             log_scraped_products(label, products)
 
         except FlowCancelled:

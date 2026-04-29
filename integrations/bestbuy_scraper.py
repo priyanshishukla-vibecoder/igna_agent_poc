@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 
 from playwright.async_api import async_playwright
 
@@ -15,12 +16,37 @@ from integrations.scraper_support import (
 )
 
 
+def build_bestbuy_search_url(
+    query: str,
+    category_id: str = "",
+    max_price: int | None = None,
+) -> str:
+    """Builds a Best Buy search URL, using direct price-facet URLs when possible."""
+    params = []
+
+    if category_id:
+        category_param = "id" if category_id.startswith("pcat") else "cp"
+        params.append(f"{category_param}={category_id}")
+
+    if max_price is not None:
+        price_facet = quote_plus(f"currentprice_facet=Price~0 to {int(max_price)}").replace(
+            "~",
+            "%7E",
+        )
+        params.append(f"qp={price_facet}")
+
+    params.append(f"st={quote_plus(query)}")
+    return f"https://www.bestbuy.com/site/searchpage.jsp?{'&'.join(params)}"
+
+
 async def apply_bestbuy_filters(
     page,
+    query: str,
+    category_id: str,
     criteria: dict | None,
     cancel_context: CancelContext | None = None,
 ) -> None:
-    """Uses Best Buy's on-page filters for availability and max price when possible."""
+    """Uses Best Buy's on-page filters for availability and direct URL price filters."""
     print("   [Best Buy] Applying site filters...")
 
     try:
@@ -37,13 +63,13 @@ async def apply_bestbuy_filters(
         return
 
     try:
-        max_price_input = page.get_by_placeholder("Max Price").first
-        await max_price_input.click(timeout=4000)
-        await max_price_input.fill(str(int(max_price)))
-        await human_delay(400, 800, cancel_context=cancel_context)
-
-        set_button = page.get_by_role("button", name="Set").first
-        await set_button.click(timeout=4000)
+        price_filtered_url = build_bestbuy_search_url(
+            query=(criteria or {}).get("search_term") or query,
+            category_id=category_id,
+            max_price=max_price,
+        )
+        print(f"   [Best Buy] Navigating to direct price-filter URL: {price_filtered_url}")
+        await page.goto(price_filtered_url, timeout=30000, wait_until="domcontentloaded")
         await page.wait_for_load_state("networkidle", timeout=10000)
         await human_delay(1500, 2200, cancel_context=cancel_context)
         print(f"   [Best Buy] Applied max price filter: {int(max_price)}")
@@ -305,14 +331,10 @@ async def scrape_bestbuy(
             if cancel_context is not None:
                 cancel_context.raise_if_cancelled()
 
-            keyword = get_product_keyword(query)
+            keyword_source = (criteria or {}).get("product") or query
+            keyword = get_product_keyword(keyword_source)
             category_id = BESTBUY_CATEGORIES.get(keyword, "")
-            cat_param = f"&cp={category_id}" if category_id else ""
-
-            search_url = (
-                f"https://www.bestbuy.com/site/searchpage.jsp"
-                f"?st={query.replace(' ', '+')}&sort=pricelow{cat_param}"
-            )
+            search_url = build_bestbuy_search_url(query, category_id=category_id)
 
             print("   [Best Buy] Navigating...")
             if category_id:
@@ -326,7 +348,13 @@ async def scrape_bestbuy(
             raw_items = await extract_bestbuy_items(page)
 
             if raw_items:
-                await apply_bestbuy_filters(page, criteria, cancel_context=cancel_context)
+                await apply_bestbuy_filters(
+                    page,
+                    query,
+                    category_id,
+                    criteria,
+                    cancel_context=cancel_context,
+                )
                 await page.evaluate("window.scrollBy(0, 600)")
                 await human_delay(2000, 2500, cancel_context=cancel_context)
                 filtered_raw_items = await extract_bestbuy_items(page)
@@ -347,7 +375,7 @@ async def scrape_bestbuy(
 
             print(f"   [Best Buy] Found {len(raw_items)} items")
             log_raw_scraper_items("Best Buy", raw_items)
-            filtered_items = [
+            normalized_items = [
                 {
                     **item,
                     "condition": infer_condition_from_text(
@@ -356,10 +384,20 @@ async def scrape_bestbuy(
                     ),
                 }
                 for item in raw_items
+            ]
+            new_only_items = [
+                item
+                for item in normalized_items
                 if is_truly_new_item(item.get("title"), item.get("condition"))
             ]
-            print(f"   [Best Buy] Truly new items after condition filter: {len(filtered_items)}")
-            products = build_products(filtered_items, "Best Buy", max_results)
+            print(f"   [Best Buy] Truly new items after condition filter: {len(new_only_items)}")
+            selected_items = new_only_items if len(new_only_items) >= max_results else normalized_items
+            if selected_items is normalized_items and normalized_items:
+                print(
+                    "   [Best Buy] Using broader search results for fallback because "
+                    "strict new-only matches were limited"
+                )
+            products = build_products(selected_items, "Best Buy", max_results)
             log_scraped_products("Best Buy", products)
 
         except FlowCancelled:

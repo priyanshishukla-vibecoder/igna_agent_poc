@@ -2,8 +2,11 @@ import json
 
 
 BESTBUY_CATEGORIES = {
-    "smartphone": "cat09000",
-    "phone": "cat09000",
+    "smartphone": "pcat17071",
+    "phone": "pcat17071",
+    "iphone": "pcat17071",
+    "galaxy": "pcat17071",
+    "pixel": "pcat17071",
     "laptop": "abcat0502000",
     "tablet": "pcmcat1575399559049",
     "headphones": "abcat0204000",

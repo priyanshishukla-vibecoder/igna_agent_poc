@@ -51,22 +51,25 @@ def run_research(
             raw_products,
             criteria,
             require_brand=False,
+            per_site_limit=max_results_per_site,
         )
         display_products = dedupe_products(filtered + expanded_relevant)
         print(
             "[IGNA API] Strict filtering found "
             f"{len(filtered)} products; expanded display set to {len(display_products)} "
-            "with soft brand fallback"
+            f"with soft fallback capped at {max_results_per_site} per site"
         )
     elif not filtered:
         display_products = filter_query_relevant_products(
             raw_products,
             criteria,
             require_brand=False,
+            per_site_limit=max_results_per_site,
         )
         print(
             "[IGNA API] Strict filtering returned 0 products; "
-            f"soft relevance fallback found {len(display_products)} products"
+            f"soft relevance fallback found {len(display_products)} products "
+            f"(up to {max_results_per_site} per site)"
         )
 
     top_pick = recommend(filtered, criteria)

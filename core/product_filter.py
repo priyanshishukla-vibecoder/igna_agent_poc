@@ -1,4 +1,5 @@
 import re
+from collections import defaultdict
 
 
 ACCESSORY_KEYWORDS = {
@@ -269,7 +270,10 @@ def dedupe_products(products: list) -> list:
 
 
 def filter_query_relevant_products(
-    products: list, criteria: dict, require_brand: bool = True
+    products: list,
+    criteria: dict,
+    require_brand: bool = True,
+    per_site_limit: int | None = None,
 ) -> list:
     """
     Applies softer relevance checks for display fallback.
@@ -287,7 +291,11 @@ def filter_query_relevant_products(
         if has_accessory_keyword(title):
             continue
 
-        if not is_truly_new_product(product):
+        condition_text = normalize_text(product.get("condition") or "")
+        requested_condition = normalize_text(criteria.get("condition") or "")
+        if requested_condition == "new" and not is_truly_new_product(product):
+            continue
+        if requested_condition in {"pre-owned", "pre owned"} and is_truly_new_product(product):
             continue
 
         if not matches_exact_model(product.get("name", ""), criteria):
@@ -295,6 +303,11 @@ def filter_query_relevant_products(
 
         if looks_like_installment_price(product, criteria):
             continue
+
+        max_price = criteria.get("max_price")
+        if max_price is not None and product.get("price") is not None:
+            if product["price"] > max_price:
+                continue
 
         brand = normalize_text(criteria.get("brand") or "")
         if require_brand and brand and brand not in title:
@@ -319,7 +332,20 @@ def filter_query_relevant_products(
             -(item.get("rating") or 0),
         )
     )
-    return dedupe_products(relevant)
+    deduped = dedupe_products(relevant)
+    if not per_site_limit or per_site_limit <= 0:
+        return deduped
+
+    per_site_counts: dict[str, int] = defaultdict(int)
+    limited = []
+    for product in deduped:
+        site = normalize_text(product.get("site") or "unknown")
+        if per_site_counts[site] >= per_site_limit:
+            continue
+        per_site_counts[site] += 1
+        limited.append(product)
+
+    return limited
 
 
 def filter_products(products: list, criteria: dict) -> list:
