@@ -110,7 +110,7 @@ export default function App() {
 
       <main className="layout">
         <section className="hero-card">
-          <p className="eyebrow">AI Product Discovery</p>
+          <p className="eyebrow"></p>
           <h1>IGNA Competitive Product Research Agent</h1>
           <p className="hero-copy">
             Enter a product search query and let IGNA gather pricing, listings,
