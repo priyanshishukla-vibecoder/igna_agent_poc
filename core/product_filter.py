@@ -140,8 +140,15 @@ def matches_storage_requirement(product: dict, criteria: dict) -> bool:
 
 
 def has_accessory_keyword(title: str) -> bool:
-    title_lower = normalize_text(title)
-    return any(keyword in title_lower for keyword in ACCESSORY_KEYWORDS)
+    """True when the title is for an accessory (case, charger, cable, ...).
+
+    Looks only at the first 30 characters so that a real device whose
+    description mentions a bundled accessory ("...Super Fast Charger Bundle")
+    isn't mis-classified. Genuine accessory listings lead with the accessory
+    type ("Case for iPhone 16", "Wireless Charger for Galaxy S24").
+    """
+    head = normalize_text(title)[:30]
+    return any(keyword in head for keyword in ACCESSORY_KEYWORDS)
 
 
 def has_required_brand(product: dict, criteria: dict) -> bool:
@@ -313,10 +320,6 @@ def filter_query_relevant_products(
         if require_brand and brand and brand not in title:
             continue
 
-        product_name = normalize_text(criteria.get("product") or "")
-        if product_name and product_name not in title:
-            continue
-
         if search_tokens:
             token_hits = sum(1 for token in search_tokens if token in title)
             required_hits = 1 if len(search_tokens) <= 2 else 2
@@ -366,7 +369,7 @@ def filter_products(products: list, criteria: dict) -> list:
         if has_accessory_keyword(product.get("name", "")):
             continue
 
-        if not is_truly_new_product(product):
+        if criteria.get("condition") == "new" and not is_truly_new_product(product):
             continue
 
         if not matches_exact_model(product.get("name", ""), criteria):

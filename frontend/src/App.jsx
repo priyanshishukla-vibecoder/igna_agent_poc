@@ -171,7 +171,17 @@ export default function App() {
             </div>
           ) : null}
 
-          {result ? (
+          {result && result.status === "infeasible" ? (
+            <div className="results-stack">
+              <article className="infeasible-card">
+                <p className="card-label">Query needs adjustment</p>
+                <h2>{result.query}</h2>
+                <p className="infeasible-copy">{result.summary}</p>
+              </article>
+            </div>
+          ) : null}
+
+          {result && result.status !== "infeasible" ? (
             <div className="results-stack">
               <div className="summary-grid">
                 <article className="info-card">

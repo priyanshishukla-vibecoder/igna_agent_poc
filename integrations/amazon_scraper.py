@@ -16,6 +16,213 @@ from integrations.scraper_support import (
 )
 
 
+AMAZON_DELIVERY_ZIP = "19341"
+
+
+async def _read_amazon_location_pill_text(page) -> str:
+    """Reads the visible ``Deliver to <name> <ZIP>`` text from the header pill."""
+    try:
+        return await page.evaluate(
+            r"""() => {
+                const node = document.querySelector('#glow-ingress-block, #nav-global-location-slot');
+                return node ? node.innerText.replace(/\s+/g, ' ').trim() : '';
+            }"""
+        )
+    except Exception:
+        return ""
+
+
+async def set_amazon_delivery_zip(
+    page,
+    postal_code: str,
+    cancel_context: CancelContext | None = None,
+) -> bool:
+    """Sets Amazon's ``Deliver to`` ZIP via the global location popover."""
+    print(f"   [Amazon ZIP] === Begin location setup for ZIP {postal_code} ===")
+    try:
+        current_url = page.url
+        current_title = (await page.title()) or ""
+        print(f"   [Amazon ZIP] Operating on current page: url={current_url!r} title={current_title!r}")
+
+        await page.screenshot(path="data/debug_amazon_zip_01_homepage.png")
+
+        print("   [Amazon ZIP] Step 1b: Waiting for the location pill to hydrate (up to 15s)...")
+        pill_selector = (
+            "#nav-global-location-popover-link, #glow-ingress-block, "
+            "#nav-global-location-slot a, [data-csa-c-content-id='nav_cs_location']"
+        )
+        try:
+            await page.locator(pill_selector).first.wait_for(state="visible", timeout=15000)
+            print("   [Amazon ZIP]   pill hydrated")
+        except Exception as exc:
+            print(f"   [Amazon ZIP] !! Pill never hydrated: {exc}")
+            body_preview = await page.evaluate(
+                "() => (document.body?.innerText || '').replace(/\\s+/g, ' ').slice(0, 600)"
+            )
+            header_html = await page.evaluate(
+                "() => (document.querySelector('#nav-main, #navbar, header')?.outerHTML || '').slice(0, 1200)"
+            )
+            print(f"   [Amazon ZIP]   body preview: {body_preview!r}")
+            print(f"   [Amazon ZIP]   header HTML preview: {header_html!r}")
+            try:
+                await page.screenshot(path="data/debug_amazon_zip_no_pill.png")
+            except Exception:
+                pass
+            return False
+
+        pill_text_before = await _read_amazon_location_pill_text(page)
+        print(f"   [Amazon ZIP] Location pill BEFORE update: {pill_text_before!r}")
+
+        if postal_code in pill_text_before:
+            print(
+                f"   [Amazon ZIP] === SKIP - ZIP {postal_code} already applied from persistent profile. "
+                "No popover interaction needed. ==="
+            )
+            return True
+
+        print("   [Amazon ZIP] Step 2: Clicking the 'Deliver to' location pill...")
+        clicked_trigger = None
+        for selector in (
+            "#nav-global-location-popover-link",
+            "#glow-ingress-block",
+            "#nav-global-location-slot a",
+            "a[data-csa-c-content-id='nav_cs_location']",
+        ):
+            try:
+                await page.locator(selector).first.click(timeout=4000)
+                clicked_trigger = selector
+                print(f"   [Amazon ZIP]   matched trigger selector: {selector!r}")
+                break
+            except Exception as exc:
+                print(f"   [Amazon ZIP]   trigger selector {selector!r} did not match: {exc}")
+                continue
+
+        if clicked_trigger is None:
+            print("   [Amazon ZIP] !! Could not open the delivery location popover - aborting")
+            try:
+                await page.screenshot(path="data/debug_amazon_zip_no_trigger.png")
+            except Exception:
+                pass
+            return False
+
+        await human_delay(800, 1300, cancel_context=cancel_context)
+        await page.screenshot(path="data/debug_amazon_zip_02_popover_opened.png")
+
+        print("   [Amazon ZIP] Step 3: Waiting for the ZIP input #GLUXZipUpdateInput...")
+        zip_input = page.locator("#GLUXZipUpdateInput").first
+        try:
+            await zip_input.wait_for(state="visible", timeout=6000)
+        except Exception as exc:
+            print(f"   [Amazon ZIP] !! ZIP input never appeared: {exc}")
+            try:
+                await page.screenshot(path="data/debug_amazon_zip_no_input.png")
+            except Exception:
+                pass
+            popover_html = await page.evaluate(
+                "() => (document.querySelector('#nav-flyout-ya-newAddr, #a-popover-content-1, .a-popover-wrapper')?.innerHTML || '').slice(0, 800)"
+            )
+            print(f"   [Amazon ZIP]   popover HTML preview: {popover_html!r}")
+            return False
+        print("   [Amazon ZIP]   ZIP input visible")
+
+        await zip_input.fill(postal_code)
+        filled_value = await zip_input.input_value()
+        print(f"   [Amazon ZIP]   ZIP input value after fill: {filled_value!r}")
+        await human_delay(300, 600, cancel_context=cancel_context)
+
+        print("   [Amazon ZIP] Step 4: Clicking Apply...")
+        clicked_submit = None
+        for selector in (
+            "#GLUXZipUpdate input[type='submit']",
+            "#GLUXZipUpdate-announce",
+            "span#GLUXZipUpdate input",
+        ):
+            try:
+                await page.locator(selector).first.click(timeout=3500)
+                clicked_submit = selector
+                print(f"   [Amazon ZIP]   matched submit selector: {selector!r}")
+                break
+            except Exception as exc:
+                print(f"   [Amazon ZIP]   submit selector {selector!r} did not match: {exc}")
+                continue
+
+        if clicked_submit is None:
+            print("   [Amazon ZIP] !! Could not submit the ZIP form - aborting")
+            try:
+                await page.screenshot(path="data/debug_amazon_zip_no_submit.png")
+            except Exception:
+                pass
+            return False
+
+        await human_delay(1500, 2200, cancel_context=cancel_context)
+        await page.screenshot(path="data/debug_amazon_zip_03_after_submit.png")
+
+        rejection_text = await page.evaluate(
+            r"""() => {
+                const text = (document.body?.innerText || '').toLowerCase();
+                if (text.includes('zip code is not currently available')) {
+                    return 'zip_not_available';
+                }
+                if (text.includes('please enter a valid us zip code')) {
+                    return 'invalid_zip';
+                }
+                if (text.includes('please enter a us zip')) {
+                    return 'invalid_zip';
+                }
+                return '';
+            }"""
+        )
+        if rejection_text:
+            print(
+                f"   [Amazon ZIP] !! Amazon REJECTED the ZIP submission: {rejection_text!r}. "
+                "This usually means the session IP geolocates outside the US and Amazon refuses "
+                "unauthenticated US-ZIP changes. Sign in or route through a US proxy."
+            )
+            return False
+
+        print("   [Amazon ZIP] Step 5: Closing the popover (Done button)...")
+        closed_with = None
+        for selector in (
+            "button[name='glowDoneButton']",
+            "#GLUXConfirmClose",
+            "button:has-text('Done')",
+        ):
+            try:
+                await page.locator(selector).first.click(timeout=2500)
+                closed_with = selector
+                await human_delay(600, 1000, cancel_context=cancel_context)
+                print(f"   [Amazon ZIP]   matched close selector: {selector!r}")
+                break
+            except Exception as exc:
+                print(f"   [Amazon ZIP]   close selector {selector!r} did not match: {exc}")
+                continue
+        if closed_with is None:
+            print("   [Amazon ZIP]   no Done button found - popover may auto-close")
+
+        pill_text_after = await _read_amazon_location_pill_text(page)
+        print(f"   [Amazon ZIP] Location pill AFTER update: {pill_text_after!r}")
+        await page.screenshot(path="data/debug_amazon_zip_04_final.png")
+
+        zip_applied = postal_code in pill_text_after
+        if zip_applied:
+            print(f"   [Amazon ZIP] === SUCCESS - ZIP {postal_code} is visible in the header pill ===")
+        else:
+            print(
+                f"   [Amazon ZIP] !! ZIP {postal_code} NOT visible in the header pill after update. "
+                "Amazon likely rejected the change or the popover step silently failed."
+            )
+
+        return zip_applied
+
+    except Exception as exc:
+        print(f"   [Amazon ZIP] !! Unexpected exception: {exc!r}")
+        try:
+            await page.screenshot(path="data/debug_amazon_zip_exception.png")
+        except Exception:
+            pass
+        return False
+
+
 def parse_amazon_price_text(text: str | None) -> float | None:
     """Parses a currency string such as '$1,114.97' into a float."""
     if not text:
@@ -167,6 +374,14 @@ async def scrape_amazon(
                     await human_delay(3000, 5000, cancel_context=cancel_context)
                     continue
                 break
+
+            zip_applied = await set_amazon_delivery_zip(
+                page, AMAZON_DELIVERY_ZIP, cancel_context=cancel_context
+            )
+            if zip_applied:
+                print("   [Amazon] Re-navigating to search URL with new ZIP applied...")
+                await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+                await human_delay(2000, 3000, cancel_context=cancel_context)
 
             print(f"   [Amazon] Final URL: {page.url}")
             if "amazon.in" in page.url:
@@ -398,18 +613,15 @@ async def scrape_amazon(
                 for item in normalized_items
                 if is_truly_new_item(item.get("title"), item.get("condition"))
             ]
-            print(f"   [Amazon] Truly new items after condition filter: {len(new_only_items)}")
-
-            fallback_items = new_only_items if len(new_only_items) >= max_results else normalized_items
-            if fallback_items is normalized_items and normalized_items:
-                print(
-                    "   [Amazon] Using broader relevant results for fallback because "
-                    "strict new-only matches were limited"
-                )
+            dropped_count = len(normalized_items) - len(new_only_items)
+            print(
+                f"   [Amazon] Truly new items after condition filter: {len(new_only_items)} "
+                f"(dropped {dropped_count} renewed/refurbished/used)"
+            )
 
             filtered_items = await enrich_amazon_missing_prices(
                 page,
-                fallback_items,
+                new_only_items,
                 limit=min(max_results, 5),
                 cancel_context=cancel_context,
             )

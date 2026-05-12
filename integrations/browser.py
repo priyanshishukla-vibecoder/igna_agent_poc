@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import sys
 
@@ -20,35 +21,37 @@ USER_AGENTS = [
 ]
 
 
+_BROWSER_PROFILE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "data", "browser_profile")
+)
+
+
 async def get_stealth_page(playwright: Playwright):
-    """Launch a Chrome-like browser context with consistent US-facing settings."""
-    launch_options = {
+    """Launch a persistent Chrome profile so trust signals (cookies, localStorage,
+    accepted delivery location) survive across runs.
+
+    Amazon (and others) score a fresh, zero-history Playwright session as
+    untrusted and reject privileged actions like changing the US delivery ZIP.
+    Reusing the same profile dir lets the session accumulate trust on the
+    first successful run (or via a one-time manual setup in the same profile).
+    """
+    os.makedirs(_BROWSER_PROFILE_DIR, exist_ok=True)
+    print(f"   [Browser] Using persistent profile at {_BROWSER_PROFILE_DIR}")
+
+    context_options = {
         "headless": False,
         "args": [
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
             "--disable-dev-shm-usage",
         ],
-    }
-    user_agent = random.choice(USER_AGENTS)
-
-    try:
-        # Prefer the installed Chrome channel so the runtime better matches the UA.
-        browser = await playwright.chromium.launch(
-            channel="chrome",
-            **launch_options,
-        )
-    except Error:
-        browser = await playwright.chromium.launch(**launch_options)
-
-    context = await browser.new_context(
-        user_agent=user_agent,
-        viewport={"width": 1280, "height": 800},
-        locale="en-US",
-        timezone_id="America/New_York",
-        screen={"width": 1280, "height": 800},
-        color_scheme="light",
-        extra_http_headers={
+        "user_agent": random.choice(USER_AGENTS),
+        "viewport": {"width": 1280, "height": 800},
+        "locale": "en-US",
+        "timezone_id": "America/New_York",
+        "screen": {"width": 1280, "height": 800},
+        "color_scheme": "light",
+        "extra_http_headers": {
             "Accept-Language": "en-US,en;q=0.9",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "sec-ch-ua": '"Google Chrome";v="124", "Chromium";v="124", "Not.A/Brand";v="24"',
@@ -56,7 +59,20 @@ async def get_stealth_page(playwright: Playwright):
             "sec-ch-ua-platform": '"Windows"',
             "Upgrade-Insecure-Requests": "1",
         },
-    )
+    }
+
+    try:
+        context = await playwright.chromium.launch_persistent_context(
+            _BROWSER_PROFILE_DIR,
+            channel="chrome",
+            **context_options,
+        )
+    except Error:
+        context = await playwright.chromium.launch_persistent_context(
+            _BROWSER_PROFILE_DIR,
+            **context_options,
+        )
+
     await context.add_init_script(
         """
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
@@ -68,8 +84,9 @@ async def get_stealth_page(playwright: Playwright):
         window.chrome = { runtime: {} };
         """
     )
-    page = await context.new_page()
-    return browser, page
+
+    page = context.pages[0] if context.pages else await context.new_page()
+    return context, page
 
 
 def register_cancelable_browser(browser, cancel_context: CancelContext | None):

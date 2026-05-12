@@ -6,6 +6,7 @@ from core.product_filter import (
 )
 from core.product_recommender import recommend
 from core.query_parser import parse_query
+from core.query_validator import validate_feasibility
 from core.summary_generator import generate_summary
 from integrations.scraper_runner import run_scraper
 
@@ -24,6 +25,24 @@ def run_research(
     print("[IGNA API] Step 1 - parsing query with Azure OpenAI...")
     criteria = parse_query(query)
     print(f"[IGNA API] Criteria: {criteria}")
+
+    if cancel_context is not None:
+        cancel_context.raise_if_cancelled()
+
+    print("[IGNA API] Step 1b - validating query feasibility...")
+    feasibility = validate_feasibility(criteria)
+    if not feasibility["feasible"]:
+        print(f"[IGNA API] Query rejected as infeasible: {feasibility['reason']}")
+        return {
+            "criteria": criteria,
+            "raw_products": [],
+            "filtered_products": [],
+            "display_products": [],
+            "top_pick": None,
+            "display_recommendation": None,
+            "summary": feasibility["reason"],
+            "feasibility": feasibility,
+        }
 
     if cancel_context is not None:
         cancel_context.raise_if_cancelled()
@@ -90,4 +109,5 @@ def run_research(
         "top_pick": top_pick,
         "display_recommendation": display_recommendation,
         "summary": summary,
+        "feasibility": feasibility,
     }

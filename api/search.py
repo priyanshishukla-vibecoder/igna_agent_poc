@@ -51,6 +51,20 @@ async def search(
 
         cancel_context.raise_if_cancelled()
 
+        feasibility = result.get("feasibility") or {"feasible": True}
+        if not feasibility.get("feasible", True):
+            print(f"[IGNA API] Returning infeasible response: {feasibility.get('reason')}")
+            return SearchResponse(
+                query=request.query,
+                criteria=SearchCriteria(**result["criteria"]),
+                total_found=0,
+                products=[],
+                recommendation=None,
+                summary=result["summary"],
+                report_path=None,
+                status="infeasible",
+            )
+
         display_products = result["display_products"]
         display_recommendation = result["display_recommendation"]
 
