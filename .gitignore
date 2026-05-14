@@ -6,3 +6,7 @@ data/
 *.log
 node_modules/
 frontend/dist/
+
+
+test_amazon_zip.py
+test_filter_pipeline.py

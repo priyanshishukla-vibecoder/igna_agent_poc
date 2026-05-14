@@ -188,6 +188,15 @@ cd frontend
 npm run dev
 ```
 
+If another local service is already using port `8000`, run the API on a free
+port and point the frontend to it:
+
+```bash
+uvicorn api.app:app --reload --port 8000
+cd frontend
+$env:VITE_API_BASE_URL="http://127.0.0.1:8000"; npm run dev
+```
+
 ### Example Request
 
 ```bash
