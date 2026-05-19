@@ -1,11 +1,34 @@
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Virtual environments
 myenv/
+venv/
+env/
+.venv/
+
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Runtime artifacts
 data/
 *.log
+
+# Dependencies
 node_modules/
+
+# Build output
 frontend/dist/
 
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug / one-off scripts (not committed)
 test_amazon_zip.py
 test_filter_pipeline.py

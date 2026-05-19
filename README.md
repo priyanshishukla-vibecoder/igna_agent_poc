@@ -48,8 +48,10 @@ igna_agent_poc2/
 │   ├── search_criteria.py
 │   ├── search_request.py
 │   └── search_response.py
-├── data/                   # Generated CSV/JSON reports and scraper screenshots
-├── frontend/               # Frontend assets if used by the local UI
+├── scripts/
+│   └── seed_amazon_profile.py  # One-time utility to set the Amazon delivery ZIP in the browser profile
+├── data/                   # Generated CSV/JSON reports and scraper screenshots (gitignored)
+├── frontend/               # React/Vite frontend
 ├── main.py                 # CLI flow for local interactive usage
 ├── requirements.txt
 └── README.md
@@ -175,10 +177,26 @@ Create a `.env` file in the project root:
 
 ```env
 AZURE_OPENAI_API_KEY=your_key_here
-AZURE_OPENAI_ENDPOINT=your_endpoint_here
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
 AZURE_OPENAI_API_VERSION=2024-05-01-preview
 AZURE_OPENAI_DEPLOYMENT=gpt-4.1-mini
 ```
+
+Create `frontend/.env` for the React dev server:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+### Amazon Browser Profile (first-time only)
+
+The Amazon scraper uses a persistent Playwright browser profile stored in `data/browser_profile/`. On first run you need to seed it with a delivery ZIP so Amazon shows correct local prices:
+
+```bash
+python scripts/seed_amazon_profile.py
+```
+
+A Chromium window will open. Navigate to Amazon, click the "Deliver to" pill, enter your ZIP code, click Apply then Done, and close the window. The profile persists for all subsequent scraper runs.
 
 ### Start the API
 
